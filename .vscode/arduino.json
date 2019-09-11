@@ -1,7 +1,8 @@
 {
     "board": "adafruit:samd:adafruit_feather_m0",
     "configuration": "usbstack=arduino,debug=off",
-    "port": "COM15",
+    "port": "COM5",
     "programmer": "AVRISP mkII",
-    "sketch": "MIT_AutomaticTitrator_TFTST7789.ino"
+    "sketch": "MIT_AutomaticTitrator_TFTST7789.ino",
+    "output": "../build"
 }

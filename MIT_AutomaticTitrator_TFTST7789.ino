@@ -30,20 +30,23 @@
  */
  
 //== Top Level Configurations
-bool Back_OLED_Screen = true; // Back_OLED_Screen is connected (debugging only)
 bool DEBUG = true;            // Enable DEBUG serial output lines (begins with "::")
-int  LOG_INTERVAL = 3;        // Data monitor interval (seconds)
-int   pH_INTERVAL = 1;        // Update pH during Calibration (seconds)
+const int LOG_INTERVAL = 3;   // Data monitor interval (seconds)
+const int  pH_INTERVAL = 1;   // Update pH during Calibration (seconds)
 bool UPDATE_RTC = false;      // Force update RTC timer
-const char *DATAFILESD = "/dataLog_000.csv";  // name of file on SD card
+const char *DATAFILESD_LOG = "/dataLog_000.csv";  // name of file on SD card for data logging
+const char *DATAFILESD_TIT = "/dataTit_000.csv";  // name of file on SD card for titration
+
+//== Titration Parameters
+#include "titration.h"
 
 //== IoT Data Logging
-#include <WiFi101.h>
 #include "iot_config.h"
 char ssid[]        = WIFI_SSID;      // your network SSID (name)
 char pass[]        = WIFI_PASS;      // your network password (use for WPA, or use as key for WEP)
 char io_username[] = IO_USERNAME;    // Adafruit IoT
 char io_key[]      = IO_KEY;         // Adafruit IoT
+#include <WiFi101.h>
 #include <WiFiUdp.h>
 #include <ArduinoHttpClient.h>
 
@@ -95,12 +98,15 @@ TMC5160Stepper motordriver(MOTOR_CS, R_SENSE);                           // Hard
 //== Display associated SD card
 #include <SdFat.h>           // For accessing onboard SD card
 #include <sdios.h>
-SdFat sd;    //File system object
-SdFile file; // log files
+SdFat sd;             // File system object
+SdFile fileLog;       // log files
+SdFile fileTitration; // titration files
 
 ArduinoOutStream cout(Serial); // used to output sd card directory list
-char sd_filename[20];
-int sd_fileseq = 0;
+char sd_filename_log[20];
+char sd_filename_tit[20];
+int sd_fileseq_log = 0;
+int sd_fileseq_tit = 0;
 bool errorSDCard;
 
 //using hardware SPI (faster)
@@ -120,7 +126,8 @@ template <unsigned N> // Template of menu system. N: number of menu items to be 
     const char *values[N];
   };
 
-String dataHeaderLine = "DateTime, DataIndex, pH, RTD, Temp(C), RelHumidity(%), Pressure(mBar), ";
+const String dataHeaderLine_log = "DateTime, DataIndex, pH, RTD, Temp(C), RelHumidity(%), Pressure(mBar), ";
+const String dataHeaderLine_tit = "DateTime, DataIndex, pH, RTD, ";
 
 //== Atlas Scientific Probe Circuits
 #include <Wire.h>
@@ -149,15 +156,15 @@ Adafruit_BME280 bme; // I2C
 //Adafruit_BME280 bme(BME_CS, BME_MOSI, BME_MISO, BME_SCK); // software SPI
 
 //== Adafruit DS3231 RTC I2C
-#include "RTClib.h"
+#include <RTClib.h>
 RTC_DS3231 rtc;
 
 /*__________________________________________________________SETUP__________________________________________________________*/
 
 void setup() {
   Serial.begin(9600);
-//  while(!Serial); // Holds the program until serial connection is established.
-//  if(DEBUG) Serial.println("\n:: Serial connection established...");
+  //  while(!Serial); // Holds the program until serial connection is established.
+  //  if(DEBUG) Serial.println("\n:: Serial connection established...");
 
   //Setting Button Inputs
   pinMode(BT_PIN_A, INPUT_PULLUP);
@@ -195,7 +202,7 @@ void setup() {
   bme_status = bme.begin();
 
   //Setting up serial data output
-  Serial.println(dataHeaderLine);
+  Serial.println(dataHeaderLine_log);
 
   //Setting DS3231/DS1307 RealTimeClock
   if (! rtc.begin()) {
@@ -249,29 +256,29 @@ void setup() {
     errorSDCard = true;
   } else {
     errorSDCard = false;
-    strcpy(sd_filename, DATAFILESD);
+    strcpy(sd_filename_log, DATAFILESD_LOG);
     for (uint8_t i = 0; i < 200; i++) {
-      sd_filename[9] = '0' + i/100;
-      sd_filename[10] = '0' + i/10;
-      sd_filename[11] = '0' + i%10;
+      sd_filename_log[9] = '0' + i/100;
+      sd_filename_log[10] = '0' + i/10;
+      sd_filename_log[11] = '0' + i%10;
       // create if does not exist, do not open existing, write, sync after write
-      if (! sd.exists(sd_filename)) {
-        sd_fileseq = i;
+      if (! sd.exists(sd_filename_log)) {
+        sd_fileseq_log = i;
         break;
       }
     }
-  
+
     // list SD card directory
     cout << F("\nList of files on the SD Card:\n");
     sd.ls("/", LS_R);
     
-    if (!file.open(sd_filename, O_CREAT | O_WRITE)) {
+    if (!fileLog.open(sd_filename_log, O_CREAT | O_WRITE)) {
       Serial.println("Cannot create file on the SD card.");
     } else {
-      Serial.print("Writing to "); 
-      Serial.println(sd_filename);
-      file.println(dataHeaderLine);
-      file.flush(); // makes sure the data is written to file
+      Serial.print("Saving data to "); 
+      Serial.println(sd_fileseq_log);
+      fileLog.println(dataHeaderLine_log);
+      fileLog.flush(); // makes sure the data is written to file
     }
   }
 } //SETUP
@@ -281,6 +288,7 @@ String timeString;       // RTC datetime stored in this
 char dateTimeBuffer[12];
 String dataString1;      // the main string to store all data (line 1)
 String dataString2;      // the main string to store all data (line 2)
+String dataString3;      // the main string to store all data (line 3)
 
 double pH_value;         // var used to hold the float value of pH
 double RTD_value;        // var used to hold the float value of RTD
@@ -292,17 +300,25 @@ int  menu_nav[2]  = {1,1};    // menu array for GUI: {level_1_location, level_2_
 int  menu_level   = 0;        // keep track of menu level: 0 is root/1st level, 1 is 2nd level
 bool need_refresh = true;     // to refresh screen
 Menu<5> Menu_root     = { " Bosak Lab SensorBot ", " MENU ",       { "Monitor Mode", 
-                                                                     "Auto Titration", 
+                                                                     "Run Titration", 
                                                                      "Log Sensors",
                                                                      "UV/Light Sensing",
                                                                      "Settings" } };
 
 Menu<5> Menu_titration = { " Bosak Lab SensorBot ", " TITRATION ", { "Move Motor/Pump",
-                                                                     "Calibrate pH",
+                                                                     "Calibrate/Check pH",
                                                                      "Execute Titration",
-                                                                     "Beam Data",
+                                                                     "Calibrate Pump",
                                                                      "Back to MENU" } };
 Menu<5> Menu_display;
+
+dataBuffer *pH_dataBuffer = new dataBuffer(5);
+double pH_first_dev  = 0;
+double pH_second_dev = 0;
+double pH_third_dev  = 0;
+
+int titration_Step_Volume;
+double titration_uL_Volume;
 
 /*__________________________________________________________LOOP__________________________________________________________*/
 
@@ -360,6 +376,8 @@ void loop() {
     }
   }
 } //LOOP
+
+/*__________________________________________________________MENU LOGIC__________________________________________________________*/
 
 void showMenu(Menu<5> Menu_display) {
   switch (menu_nav[menu_level]) {
@@ -425,7 +443,7 @@ void cycleScreen(int menu_item, Menu<5> Menu_display) {
       } else {
         FrontDisplay.setCursor(36,18*11+6);
         FrontDisplay.setTextColor(ST77XX_GREEN, ST77XX_BLACK);
-        FrontDisplay.print(sd_filename);
+        FrontDisplay.print(sd_filename_log);
       }
       FrontDisplay.drawRect(0, 37, 240, 197, ST77XX_WHITE);  // Draw a rectangle box around the menu
 }
@@ -472,8 +490,11 @@ void executeAction() {                   // governs what happens when the "selec
   } 
 }
 
+/*__________________________________________________________MENU ACTIONS__________________________________________________________*/
+
 void action_1_monitor_sensors() {
   // Monitor/log all sensory data continuously until the next button press
+  id = 0;
   if(DEBUG) Serial.println(":: Begin logging sensory data.");
   
     // Static Line
@@ -641,7 +662,8 @@ void action21_adjust_pump() {
 }
 
 void action22_calibrate_pH() {
-  // Monitor pH and Temperature
+  // Monitor pH and calibrate probe
+  if(DEBUG) Serial.println(":: Begin pH calibration procedure.");
   
     // Static Line
     // Line 1: each line is 18 pixels high, 20 characters long (12 pixels wide per character)
@@ -715,7 +737,7 @@ void action22_calibrate_pH() {
     FrontDisplay.setCursor(1,18*11+6);
     FrontDisplay.println("< Hold to RETURN" );
 
-    id ++;           // increase one ID next iteration
+    id ++;           // increase one ID for the next iteration
 
     // Button combinations for pH meter calibration
     if (!digitalRead(BT_PIN_A) && !digitalRead(BT_PIN_B)){
@@ -739,24 +761,46 @@ void action22_calibrate_pH() {
 }
 
 void action23_execute_titration() {
-  // Monitor necessary sensory data while moving the pump for titration
-  if(DEBUG) Serial.println(":: Begin logging sensory data.");
+  // Run automatic titration and record data (pH and amount of titrant added)
+  id = 0;
+  if(DEBUG) Serial.println(":: Begin automatic titration procedure.");
   
+    // Static Line
     // Line 1: each line is 18 pixels high, 20 characters long (12 pixels wide per character)
   FrontDisplay.fillScreen(ST77XX_BLACK);
   FrontDisplay.setTextSize(2);
-  FrontDisplay.setTextColor(ST77XX_WHITE);
+  FrontDisplay.setTextColor(ST77XX_WHITE, ST77XX_BLACK);
   FrontDisplay.setCursor(0,0);
   FrontDisplay.println(Menu_display.values[2]);
-  //FrontDisplay.display();
     // Line 2: each line is 18 pixels high, 20 characters long (12 pixels wide per character)
-  FrontDisplay.setCursor(0,18*1);
+  FrontDisplay.setCursor(0,18*1+6);
   FrontDisplay.print("____");
   FrontDisplay.setTextColor(ST77XX_BLACK, ST77XX_WHITE); // 'inverted' text
   FrontDisplay.print(" TITRATION ");
   FrontDisplay.setTextColor(ST77XX_WHITE);
   FrontDisplay.println("_____");
   
+  // Setup titration logging file on SD card
+  strcpy(sd_filename_tit, DATAFILESD_TIT);
+  for (uint8_t i = 0; i < 200; i++) {
+    sd_filename_tit[9] = '0' + i/100;
+    sd_filename_tit[10] = '0' + i/10;
+    sd_filename_tit[11] = '0' + i%10;
+    // create if does not exist, do not open existing, write, sync after write
+    if (! sd.exists(sd_filename_tit)) {
+      sd_fileseq_tit = i;
+      break;
+    }
+  }
+  if (!fileTitration.open(sd_filename_tit, O_CREAT | O_WRITE)) {
+    Serial.println(":: Cannot create file on the SD card.");
+  } else {
+    Serial.print(":: Saving titration data to "); 
+    Serial.println(sd_filename_tit);
+    fileTitration.println(dataHeaderLine_tit);
+    fileTitration.flush(); // makes sure the data is written to file
+  }
+
   delay(1000); // This gives time to make sure that the button has been released.
 
   while( digitalRead(BT_PIN_C) ) { // Exit the loop if the button is pressed again
@@ -772,9 +816,9 @@ void action23_execute_titration() {
     dataString1 = String(id);
     dataString1 += ",\t";
     
-    // Acquire pH Probe Data
+    // Acquire Atlas Probe Data
     if(DEBUG) Serial.println(":: Acquired pH data.");
-    pH_value = get_AtlasEZOProbe_I2C_Data(pH_address);
+    pH_value = get_AtlasEZOProbe_I2C_Data(pH_address); pH_dataBuffer->insert(pH_value);
     dataString1 += String(pH_value,3);
     dataString1 += ",\t";
   
@@ -782,78 +826,94 @@ void action23_execute_titration() {
     RTD_value = get_AtlasEZOProbe_I2C_Data(RTD_address);
     dataString1 += String(RTD_value,3);
     dataString1 += ",\t";
-    
-    if(DEBUG) Serial.println(":: Acquired BME280 sensory data.");
-    T_value = bme.readTemperature();
-    H_value = bme.readHumidity();
-    P_value = bme.readPressure();
-    dataString2  = String(T_value,3);
-    dataString2 += ",\t";
-    dataString2 += String(H_value,3);
-    dataString2 += ",\t";
-    dataString2 += String(P_value/100,3);
-    dataString2 += ",\t";
-  
-    Serial.print(timeString);
-    Serial.print(dataString1);
-    Serial.println(dataString2);
+
+    Serial.print(timeString);fileTitration.print(timeString);
+    Serial.print(dataString1);fileTitration.print(dataString1);
+
+    // Perform pH_dataBuffer calculations
+    if (pH_dataBuffer->is_1st2nd_dev_ready()) {
+      pH_first_dev  = pH_dataBuffer->first_dev(DELTA_T);
+      pH_second_dev = pH_dataBuffer->second_dev(DELTA_T);
+      titration_Step_Volume = pH_dataBuffer->compute_titration_Step_Volume (DELTA_T);
+      titration_uL_Volume   = pH_dataBuffer->compute_titration_uL_Volume (DELTA_T);
+      //dataString2 = String(pH_first_dev,3);
+      dataString2  = mathstr_sci(pH_first_dev, 3);
+      dataString2 += ",\t";
+      //dataString2 += String(pH_second_dev,3);
+      dataString2  = mathstr_sci(pH_second_dev, 3);
+      dataString2 += ",\t";
+      dataString2 += String(titration_Step_Volume);
+      dataString2 += ",\t";
+      dataString2 += String(titration_uL_Volume, 3);
+      dataString2 += ",\t";
+
+      if (pH_dataBuffer->is_3rd_dev_ready()) {
+        pH_third_dev = pH_dataBuffer->third_dev(DELTA_T);
+        dataString2 += mathstr_sci(pH_third_dev, 3);
+        dataString2 += ",\t";
+      }
+    }
+
+    Serial.println(dataString2);fileTitration.println(dataString2);
+    fileTitration.flush(); // makes sure that the data is written to file
     
     // Front Display Update
-      // Line 1: each line is 18 pixels high, 20 characters long (12 pixels wide per character)
-    FrontDisplay.fillScreen(ST77XX_BLACK);
-    FrontDisplay.setTextSize(2);
-    FrontDisplay.setTextColor(ST77XX_WHITE);
-    FrontDisplay.setCursor(0,0);
-    FrontDisplay.println(Menu_display.values[0]);
-      // Line 2: each line is 18 pixels high, 20 characters long (12 pixels wide per character)
-    FrontDisplay.setCursor(0,18*1);
-    FrontDisplay.print("_____");
-    FrontDisplay.setTextColor(ST77XX_BLACK, ST77XX_WHITE); // 'inverted' text
-    FrontDisplay.print(" TITRATION ");
-    FrontDisplay.setTextColor(ST77XX_WHITE);
-    FrontDisplay.println("_____");
-      // Line 3: each line is 18 pixels high, 20 characters long (12 pixels wide per character)
       // Line 4: each line is 18 pixels high, 20 characters long (12 pixels wide per character)
     FrontDisplay.setCursor(1,18*2+6);
-    FrontDisplay.setTextColor(ST77XX_WHITE);
+    FrontDisplay.setTextColor(ST77XX_WHITE, ST77XX_BLACK);
     FrontDisplay.print( "#" );
     FrontDisplay.print( String(id) );
     FrontDisplay.print( " " );
     FrontDisplay.println( timeString.substring(5,19) );
-    // Line 5: each line is 18 pixels high, 20 characters long (12 pixels wide per character)
+      // Line 5: each line is 18 pixels high, 20 characters long (12 pixels wide per character)
     FrontDisplay.setCursor(1,18*3+6);
-    FrontDisplay.print( " pH=" );
-    FrontDisplay.print( String(pH_value,3) );
-    FrontDisplay.print( ",   T=" );
-    FrontDisplay.print( String(RTD_value,3) );
-    FrontDisplay.print( " C" );
+    FrontDisplay.print( " pH    = " );
+    FrontDisplay.println( String(pH_value,3) );
       // Line 6: each line is 18 pixels high, 20 characters long (12 pixels wide per character)
-    FrontDisplay.setCursor(1,18*4+6);
-    FrontDisplay.print(" T="); FrontDisplay.print(T_value,3); FrontDisplay.print  (" C,"); 
-    FrontDisplay.print(" H="); FrontDisplay.print(H_value,3); FrontDisplay.println(" %");
+    FrontDisplay.setCursor(1,18*4+6);    
+    FrontDisplay.print( " T(lq) = " );
+    FrontDisplay.print( String(RTD_value,3) );
+    FrontDisplay.println( " C" );
       // Line 7: each line is 18 pixels high, 20 characters long (12 pixels wide per character)
-    FrontDisplay.setCursor(1,18*5+6);
-    FrontDisplay.print(" P="); FrontDisplay.print(P_value/100,3); FrontDisplay.println(" mBar" );
       // Line 8: each line is 18 pixels high, 20 characters long (12 pixels wide per character)
     FrontDisplay.setCursor(1,18*6+6);
+    FrontDisplay.print( " pH_slope: " );
+    FrontDisplay.println( mathstr_sci(pH_first_dev, 3) );
+      // Line 9: each line is 18 pixels high, 20 characters long (12 pixels wide per character)
+    FrontDisplay.setCursor(1,18*7+6);
+    FrontDisplay.print( " pH_curva: " );
+    FrontDisplay.println( mathstr_sci(pH_second_dev, 3) );
+      // Line 10: each line is 18 pixels high, 20 characters long (12 pixels wide per character)
+      // Line 11: each line is 18 pixels high, 20 characters long (12 pixels wide per character)
+      // Line 12: each line is 18 pixels high, 20 characters long (12 pixels wide per character)
+    FrontDisplay.setCursor(36,18*10+6);
+    if (errorSDCard) {
+      FrontDisplay.setTextColor(ST77XX_RED, ST77XX_BLACK);
+      FrontDisplay.print("!SD Card Error!");
+    } else {
+      FrontDisplay.setTextColor(ST77XX_GREEN, ST77XX_BLACK);
+      FrontDisplay.print(sd_filename_tit);
+    }
+      // Line 13: each line is 18 pixels high, 20 characters long (12 pixels wide per character)
+    FrontDisplay.setCursor(1,18*11+6);
+    FrontDisplay.setTextColor(ST77XX_WHITE, ST77XX_BLACK);
     FrontDisplay.println("< Hold to RETURN" );
 
-    id ++;           // increase one ID next iteration
+    // Pumping logic
+    stepper.setSpeedInStepsPerSecond(800);
+    stepper.setAccelerationInStepsPerSecondPerSecond(800);
     
-    delay(LOG_INTERVAL*1000);
-
-    // Set Pumping of Syringe
-    stepper.setSpeedInStepsPerSecond(1600);
-    stepper.setAccelerationInStepsPerSecondPerSecond(1600);
-  
     if(DEBUG) Serial.println(":: Moving Syringe Head DOWN 1 rev (pumping out)");
-    stepper.moveRelativeInSteps(3200);
+    stepper.moveRelativeInSteps(3200); // 3200 steps = 1 full revolution = 1 mm distance
     delay(2000);
   
     if(DEBUG) Serial.println(":: Moving Syringe Head UP 1 rev (pumping in)");
     stepper.moveRelativeInSteps(-3200);
     delay(2000);
     
+    id ++;           // increase one ID for the next iteration
+    
+    delay(DELTA_T*1000);
   } // while button not pressed, continue to run the code block  
 }
 
@@ -871,6 +931,7 @@ void action24_custom() {
 
 void action3_log_sensors() {
   // Monitor/log all sensory data continuously until the next button press
+  id = 0;
   if(DEBUG) Serial.println(":: Begin logging sensory data.");
   
     // Static Line
@@ -903,7 +964,7 @@ void action3_log_sensors() {
     dataString1 = String(id);
     dataString1 += ",\t";
     
-    // Acquire pH Probe Data
+    // Acquire Atlas Probe Data
     if(DEBUG) Serial.println(":: Acquired pH data.");
     pH_value = get_AtlasEZOProbe_I2C_Data(pH_address);
     dataString1 += String(pH_value,3);
@@ -925,10 +986,10 @@ void action3_log_sensors() {
     dataString2 += String(P_value/100,3);
     dataString2 += ",\t";
 
-    Serial.print(timeString);file.print(timeString);
-    Serial.print(dataString1);file.print(dataString1);
-    Serial.println(dataString2);file.println(dataString2);
-    file.flush(); // makes sure that the data is written to file
+    Serial.print(timeString);fileLog.print(timeString);
+    Serial.print(dataString1);fileLog.print(dataString1);
+    Serial.println(dataString2);fileLog.println(dataString2);
+    fileLog.flush(); // makes sure that the data is written to file
     
     // Front Display Update
       // Line 4: each line is 18 pixels high, 20 characters long (12 pixels wide per character)
@@ -972,7 +1033,7 @@ void action3_log_sensors() {
     } else {
       FrontDisplay.setCursor(36,18*10+6);
       FrontDisplay.setTextColor(ST77XX_GREEN, ST77XX_BLACK);
-      FrontDisplay.print(sd_filename);
+      FrontDisplay.print(sd_filename_log);
     }
       // Line 13: each line is 18 pixels high, 20 characters long (12 pixels wide per character)
     FrontDisplay.setTextColor(ST77XX_WHITE, ST77XX_BLACK);
@@ -987,6 +1048,7 @@ void action3_log_sensors() {
 
 void action4_uv_light_log() {
   // Monitor UV for long-term timelapse data
+  id = 0;
   if(DEBUG) Serial.println(":: Begin logging sensory data.");
   
     // Line 1: each line is 18 pixels high, 20 characters long (12 pixels wide per character)
@@ -1007,6 +1069,8 @@ void action5_settings() {
   FrontDisplay.setCursor(0,0);
   FrontDisplay.println(">Settings            ");
 }
+
+/*__________________________________________________________ATLAS PROBES__________________________________________________________*/
 
 double get_AtlasEZOProbe_I2C_Data(int I2C_address) {
 
@@ -1089,9 +1153,11 @@ void comm_AtlasEZOProbe_I2C_Data(int I2C_address, const char *str) { // send tex
     }
 
     Serial.println(data);
-//    return data;                       //return text string
+  //  return data;                       //return text string
   }
 }
+
+/*__________________________________________________________WEB CODE__________________________________________________________*/
 
 void connectToWebSocketServer() {
   Serial.println(":: Connecting to webSocket server...");
@@ -1101,4 +1167,107 @@ void connectToWebSocketServer() {
   } else {
     Serial.println(":: Connected.");
   }
+}
+
+/*__________________________________________________________SYSTEM HELPER__________________________________________________________*/
+
+void(* resetFunc) (void) = 0; //declare reset function at address 0
+
+// Credit: https://github.com/RobTillaart/Arduino/blob/master/libraries/MathHelpers/MathHelpers.h
+
+char __mathHelperBuffer[16];
+
+char * mathstr_sci(double number, int digits)
+{
+  int exponent = 0;
+  int pos = 0;
+
+  // Handling these costs 13 bytes RAM
+  // shorten them with N, I, -I ?
+  if (isnan(number)) 
+  {
+    strcpy(__mathHelperBuffer, "nan");
+    return __mathHelperBuffer;
+  }
+  if (isinf(number))
+  {
+    if (number < 0) strcpy(__mathHelperBuffer, "-inf");
+    strcpy(__mathHelperBuffer, "inf");
+    return __mathHelperBuffer;
+  }
+
+  // Handle negative numbers
+  bool neg = (number < 0.0);
+  if (neg)
+  {
+    __mathHelperBuffer[pos++] = '-';
+    number = -number;
+  }
+
+  while (number >= 10.0)
+  {
+    number /= 10;
+    exponent++;
+  }
+  while (number < 1 && number != 0.0)
+  {
+    number *= 10;
+    exponent--;
+  }
+
+  // Round correctly so that print(1.999, 2) prints as "2.00"
+  double rounding = 0.5;
+  for (uint8_t i = 0; i < digits; ++i)
+  {
+    rounding *= 0.1;
+  }
+  number += rounding;
+  if (number >= 10)
+  {
+    exponent++;
+    number /= 10;
+  }
+
+  // Extract the integer part of the number and print it
+  uint8_t d = (uint8_t)number;
+  double remainder = number - d;
+  __mathHelperBuffer[pos++] = d + '0';   // 1 digit before decimal point
+  if (digits > 0)
+  {
+    __mathHelperBuffer[pos++] = '.';  // decimal point TODO:rvdt CONFIG?
+  }
+
+  // Extract digits from the remainder one at a time to prevent missing leading zero's
+  while (digits-- > 0)
+  {
+    remainder *= 10.0;
+    d = (uint8_t)remainder;
+    __mathHelperBuffer[pos++] = d + '0';
+    remainder -= d;
+  }
+
+  // print exponent
+  __mathHelperBuffer[pos++] = 'E';
+  neg = exponent < 0;
+  if (neg)
+  {
+    __mathHelperBuffer[pos++] = '-';
+    exponent = -exponent;
+  }
+  else __mathHelperBuffer[pos++] = '+';
+
+  // 3 digits for exponent;           // needed for double
+  // d = exponent / 100;
+  // __mathHelperBuffer[pos++] = d + '0';
+  // exponent -= d * 100;
+
+  // 2 digits for exponent
+  d = exponent / 10;
+  __mathHelperBuffer[pos++] = d + '0';
+  d = exponent - d*10;
+  __mathHelperBuffer[pos++] = d + '0';
+
+  __mathHelperBuffer[pos] = '\0';
+
+  return __mathHelperBuffer;
 }

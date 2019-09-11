@@ -5,6 +5,25 @@
             "includePath": [
                 "C:\\Users\\GoJian\\AppData\\Local\\Arduino15\\packages\\adafruit\\hardware\\samd\\1.5.3\\**"
             ],
+            "browse": {
+                "limitSymbolsToIncludedHeaders": false,
+                "path": [
+                    "D:\\Program Files (x86)\\Arduino\\hardware\\arduino\\avr\\libraries\\SPI",
+                    "D:\\Program Files (x86)\\Arduino\\hardware\\arduino\\avr\\libraries\\Wire",
+                    "F:\\Dropbox (Personal)\\Code\\Arduino\\libraries\\WiFi101",
+                    "F:\\Dropbox (Personal)\\Code\\Arduino\\libraries\\ArduinoHttpClient",
+                    "F:\\Dropbox (Personal)\\Code\\Arduino\\libraries\\FlexyStepper",
+                    "F:\\Dropbox (Personal)\\Code\\Arduino\\libraries\\TMCStepper",
+                    "F:\\Dropbox (Personal)\\Code\\Arduino\\libraries\\Adafruit_GFX_Library",
+                    "F:\\Dropbox (Personal)\\Code\\Arduino\\libraries\\Adafruit_ST7735_ST7789",
+                    "F:\\Dropbox (Personal)\\Code\\Arduino\\libraries\\Adafruit_SDFat",
+                    "F:\\Dropbox (Personal)\\Code\\Arduino\\libraries\\Adafruit_Sensor",
+                    "F:\\Dropbox (Personal)\\Code\\Arduino\\libraries\\Adafruit_SGP30",
+                    "F:\\Dropbox (Personal)\\Code\\Arduino\\libraries\\RTClib",
+                    "F:\\Dropbox (Personal)\\Code\\Arduino\\libraries\\Adafruit_BME280",
+                    "${workspaceRoot}"
+                ]
+            },
             "forcedInclude": [
                 "C:\\Users\\GoJian\\AppData\\Local\\Arduino15\\packages\\adafruit\\hardware\\samd\\1.5.3\\cores\\arduino\\Arduino.h"
             ],
