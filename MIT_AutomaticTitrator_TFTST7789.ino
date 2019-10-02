@@ -126,8 +126,7 @@ template <unsigned N> // Template of menu system. N: number of menu items to be 
     const char *values[N];
   };
 
-const String dataHeaderLine_log = "DateTime, DataIndex, pH, RTD, Temp(C), RelHumidity(%), Pressure(mBar), ";
-const String dataHeaderLine_tit = "DateTime, DataIndex, pH, RTD, ";
+const String dataHeaderLine_log = "DateTime, DataIndex, pH, RTD, Temp(C), RelHumidity(%), Pressure(mBar)";
 
 //== Atlas Scientific Probe Circuits
 #include <Wire.h>
@@ -275,8 +274,8 @@ void setup() {
     if (!fileLog.open(sd_filename_log, O_CREAT | O_WRITE)) {
       Serial.println("Cannot create file on the SD card.");
     } else {
-      Serial.print("Saving data to "); 
-      Serial.println(sd_fileseq_log);
+      Serial.print("Saving log data to "); 
+      Serial.println(sd_filename_log);
       fileLog.println(dataHeaderLine_log);
       fileLog.flush(); // makes sure the data is written to file
     }
@@ -284,7 +283,7 @@ void setup() {
 } //SETUP
 
 int id;                  // index of acquired data
-String timeString;       // RTC datetime stored in this
+String textString;       // RTC datetime stored in this
 char dateTimeBuffer[12];
 String dataString1;      // the main string to store all data (line 1)
 String dataString2;      // the main string to store all data (line 2)
@@ -311,14 +310,6 @@ Menu<5> Menu_titration = { " Bosak Lab SensorBot ", " TITRATION ", { "Move Motor
                                                                      "Calibrate Pump",
                                                                      "Back to MENU" } };
 Menu<5> Menu_display;
-
-dataBuffer *pH_dataBuffer = new dataBuffer(5);
-double pH_first_dev  = 0;
-double pH_second_dev = 0;
-double pH_third_dev  = 0;
-
-int titration_Step_Volume;
-double titration_uL_Volume;
 
 /*__________________________________________________________LOOP__________________________________________________________*/
 
@@ -519,9 +510,9 @@ void action_1_monitor_sensors() {
     DateTime now = rtc.now();
 
     sprintf(dateTimeBuffer, "%04u-%02u-%02u ", now.year(), now.month(), now.day());
-    timeString = dateTimeBuffer;
+    textString = dateTimeBuffer;
     sprintf(dateTimeBuffer, "%02u:%02u:%02u,\t", now.hour(), now.minute(), now.second());
-    timeString += dateTimeBuffer;
+    textString += dateTimeBuffer;
     
     // Setting up dataStrings
     dataString1 = String(id);
@@ -549,7 +540,7 @@ void action_1_monitor_sensors() {
     dataString2 += String(P_value/100,3);
     dataString2 += ",\t";
   
-    Serial.print(timeString);
+    Serial.print(textString);
     Serial.print(dataString1);
     Serial.println(dataString2);
     
@@ -560,7 +551,7 @@ void action_1_monitor_sensors() {
     FrontDisplay.print( "#" );
     FrontDisplay.print( String(id) );
     FrontDisplay.print( " " );
-    FrontDisplay.println( timeString.substring(5,19) );
+    FrontDisplay.println( textString.substring(5,19) );
       // Line 5: each line is 18 pixels high, 20 characters long (12 pixels wide per character)
     FrontDisplay.setCursor(1,18*3+6);
     FrontDisplay.print( " pH    = " );
@@ -687,9 +678,9 @@ void action22_calibrate_pH() {
     DateTime now = rtc.now();
 
     sprintf(dateTimeBuffer, "%04u-%02u-%02u ", now.year(), now.month(), now.day());
-    timeString = dateTimeBuffer;
+    textString = dateTimeBuffer;
     sprintf(dateTimeBuffer, "%02u:%02u:%02u,\t", now.hour(), now.minute(), now.second());
-    timeString += dateTimeBuffer;
+    textString += dateTimeBuffer;
     
     // Setting up dataStrings
     dataString1 = String(id);
@@ -706,7 +697,7 @@ void action22_calibrate_pH() {
     dataString1 += String(RTD_value,3);
     //dataString1 += ",\t";
   
-    Serial.print(timeString);
+    Serial.print(textString);
     Serial.println(dataString1);
     
     // Front Display Update
@@ -716,7 +707,7 @@ void action22_calibrate_pH() {
     FrontDisplay.print( "#" );
     FrontDisplay.print( String(id) );
     FrontDisplay.print( " " );
-    FrontDisplay.println( timeString.substring(5,19) );
+    FrontDisplay.println( textString.substring(5,19) );
       // Line 5: each line is 18 pixels high, 20 characters long (12 pixels wide per character)
     FrontDisplay.setCursor(1,18*3+6);
     FrontDisplay.print( " pH    = " );
@@ -741,37 +732,54 @@ void action22_calibrate_pH() {
 
     // Button combinations for pH meter calibration
     if (!digitalRead(BT_PIN_A) && !digitalRead(BT_PIN_B)){
-      comm_AtlasEZOProbe_I2C_Data(pH_address, "Cal,?");
+      Serial.println(":: Sending calibration command: Cal,mid,7.00");
+      comm_AtlasEZOProbe_I2C_Data(pH_address, "Cal,mid,7.00");
       delay(100);
       while(!digitalRead(BT_PIN_A) && !digitalRead(BT_PIN_B));  // Ignore button holds
     }
-    if (!digitalRead(BT_PIN_B) && !digitalRead(BT_PIN_C)){
-      comm_AtlasEZOProbe_I2C_Data(pH_address, "Slope,?");
+    if (!digitalRead(BT_PIN_A)){
+      Serial.println(":: Sending calibration command: Cal,low,4.01");
+      comm_AtlasEZOProbe_I2C_Data(pH_address, "Cal,low,4.01");
       delay(100);
-      while(!digitalRead(BT_PIN_B) && !digitalRead(BT_PIN_C));  // Ignore button holds
+      while(!digitalRead(BT_PIN_A));  // Ignore button holds
     }
-    if (!digitalRead(BT_PIN_A) && !digitalRead(BT_PIN_C)){
-      comm_AtlasEZOProbe_I2C_Data(pH_address, "Status");
+    if (!digitalRead(BT_PIN_B)){
+      Serial.println(":: Sending calibration command: Cal,high,10.01");
+      comm_AtlasEZOProbe_I2C_Data(pH_address, "Cal,high,10.01");
       delay(100);
-      while(!digitalRead(BT_PIN_A) && !digitalRead(BT_PIN_C));  // Ignore button holds
+      while(!digitalRead(BT_PIN_B));  // Ignore button holds
     }
     
     delay(pH_INTERVAL*1000);
   } // while button not pressed, continue to run the code block to update data on the screen
 }
 
+dataBuffer *pH_dataBuffer_check     = new dataBuffer(5);
+dataBuffer *pH_dataBuffer_titration = new dataBuffer(5);
+dataBuffer *uL_dataBuffer_titration           = new dataBuffer(5);
+double pH_max_slope  = 0;
+
+int titration_steps_Volume;
+double titration_uL_Volume;
+double total_titration_uL_Volume;
+
+const String dataHeaderLine_tit = "DateTime, DataIndex, pH, RTD, pH_max_slope, uL_Vol, step_Vol, total_uL_Vol";
+
 void action23_execute_titration() {
+  delay(200); // This gives time to make sure that the button has been released.
+
   // Run automatic titration and record data (pH and amount of titrant added)
   id = 0;
+  total_titration_uL_Volume = 0;
   if(DEBUG) Serial.println(":: Begin automatic titration procedure.");
   
     // Static Line
     // Line 1: each line is 18 pixels high, 20 characters long (12 pixels wide per character)
   FrontDisplay.fillScreen(ST77XX_BLACK);
-  FrontDisplay.setTextSize(2);
-  FrontDisplay.setTextColor(ST77XX_WHITE, ST77XX_BLACK);
-  FrontDisplay.setCursor(0,0);
-  FrontDisplay.println(Menu_display.values[2]);
+  // FrontDisplay.setTextSize(2);
+  // FrontDisplay.setTextColor(ST77XX_WHITE, ST77XX_BLACK);
+  // FrontDisplay.setCursor(0,0);
+  // FrontDisplay.println(Menu_display.values[2]);
     // Line 2: each line is 18 pixels high, 20 characters long (12 pixels wide per character)
   FrontDisplay.setCursor(0,18*1+6);
   FrontDisplay.print("____");
@@ -797,28 +805,27 @@ void action23_execute_titration() {
   } else {
     Serial.print(":: Saving titration data to "); 
     Serial.println(sd_filename_tit);
-    fileTitration.println(dataHeaderLine_tit);
+    fileTitration.println(dataHeaderLine_tit); // write data header line
     fileTitration.flush(); // makes sure the data is written to file
   }
-
-  delay(1000); // This gives time to make sure that the button has been released.
 
   while( digitalRead(BT_PIN_C) ) { // Exit the loop if the button is pressed again
     // Getting current DateTime: YYYY-MM-DD HH:MM:SS
     DateTime now = rtc.now();
 
     sprintf(dateTimeBuffer, "%04u-%02u-%02u ", now.year(), now.month(), now.day());
-    timeString = dateTimeBuffer;
+    textString = dateTimeBuffer;
     sprintf(dateTimeBuffer, "%02u:%02u:%02u,\t", now.hour(), now.minute(), now.second());
-    timeString += dateTimeBuffer;
-    
+    textString += dateTimeBuffer;
+
     // Setting up dataStrings
     dataString1 = String(id);
     dataString1 += ",\t";
-    
+
     // Acquire Atlas Probe Data
     if(DEBUG) Serial.println(":: Acquired pH data.");
-    pH_value = get_AtlasEZOProbe_I2C_Data(pH_address); pH_dataBuffer->insert(pH_value);
+    pH_value = get_AtlasEZOProbe_I2C_Data(pH_address); pH_dataBuffer_check->insert(pH_value);
+    
     dataString1 += String(pH_value,3);
     dataString1 += ",\t";
   
@@ -827,66 +834,95 @@ void action23_execute_titration() {
     dataString1 += String(RTD_value,3);
     dataString1 += ",\t";
 
-    Serial.print(timeString);fileTitration.print(timeString);
-    Serial.print(dataString1);fileTitration.print(dataString1);
+    Serial.print(textString);
+    Serial.print(dataString1); textString += dataString1;
 
     // Perform pH_dataBuffer calculations
-    if (pH_dataBuffer->is_1st2nd_dev_ready()) {
-      pH_first_dev  = pH_dataBuffer->first_dev(DELTA_T);
-      pH_second_dev = pH_dataBuffer->second_dev(DELTA_T);
-      titration_Step_Volume = pH_dataBuffer->compute_titration_Step_Volume (DELTA_T);
-      titration_uL_Volume   = pH_dataBuffer->compute_titration_uL_Volume (DELTA_T);
-      //dataString2 = String(pH_first_dev,3);
-      dataString2  = mathstr_sci(pH_first_dev, 3);
-      dataString2 += ",\t";
-      //dataString2 += String(pH_second_dev,3);
-      dataString2  = mathstr_sci(pH_second_dev, 3);
-      dataString2 += ",\t";
-      dataString2 += String(titration_Step_Volume);
-      dataString2 += ",\t";
-      dataString2 += String(titration_uL_Volume, 3);
-      dataString2 += ",\t";
+    if (pH_dataBuffer_check->isFilled()) {   // First fill the buffer (default size is 5)
+      if (pH_dataBuffer_check->isStable()) { // Then check for stability, only proceed if the buffer is stable
+        pH_dataBuffer_titration->insert(pH_value); uL_dataBuffer_titration->insert(total_titration_uL_Volume); // keep these two dataBuffer in pairs
 
-      if (pH_dataBuffer->is_3rd_dev_ready()) {
-        pH_third_dev = pH_dataBuffer->third_dev(DELTA_T);
-        dataString2 += mathstr_sci(pH_third_dev, 3);
+        pH_max_slope = pH_dataBuffer_titration->find_slope_max(pH_dataBuffer_titration, uL_dataBuffer_titration);
+
+        dataString2  = mathstr_sci(pH_max_slope, 3);
         dataString2 += ",\t";
+
+        Serial.print(dataString2); textString += dataString2;
+
+        // Pumping Decision Logic
+        titration_uL_Volume    = pH_dataBuffer_titration->compute_titration_uL_Volume (pH_max_slope);
+        titration_steps_Volume = int( titration_uL_Volume / pump_uL_PER_STEP );
+
+        dataString3  = String(titration_uL_Volume, 3);
+        dataString3 += ",\t";
+        dataString3 += String(titration_steps_Volume);      
+        dataString3 += ",\t";
+
+        stepper.setSpeedInStepsPerSecond(titration_steps_Volume);
+        stepper.setAccelerationInStepsPerSecondPerSecond(titration_steps_Volume);
+        
+          // moving the motor
+        stepper.moveRelativeInSteps(titration_steps_Volume); // 3200 steps = 1 full revolution = 1 mm distance
+
+          // record total volume
+        total_titration_uL_Volume += titration_uL_Volume;
+
+        dataString3 += String(total_titration_uL_Volume, 3);
+        //dataString3 += ",\t";
+
+        Serial.println(dataString3); textString += dataString3;
+
+        if(DEBUG) {
+          Serial.print(":: Moved Syringe Head DOWN (pump out) ");
+          Serial.print( titration_steps_Volume );
+          Serial.print( " steps, OR ");
+          Serial.print( titration_uL_Volume );
+          Serial.println( " uL ");
+        }
+
+        //write to file
+        fileTitration.println(textString);
+        fileTitration.flush(); // makes sure that the data is written to file
+
+        delay(TITRATION_WAIT_T*1000); // wait time for pH stability
+      } else {
+        delay(TITRATION_DELTA_T*1000); // If pH is not stable, wait for some time
       }
     }
-
-    Serial.println(dataString2);fileTitration.println(dataString2);
-    fileTitration.flush(); // makes sure that the data is written to file
     
     // Front Display Update
-      // Line 4: each line is 18 pixels high, 20 characters long (12 pixels wide per character)
-    FrontDisplay.setCursor(1,18*2+6);
+      // Line 3: each line is 18 pixels high, 20 characters long (12 pixels wide per character)
+    FrontDisplay.setCursor(1,18*1+6);
     FrontDisplay.setTextColor(ST77XX_WHITE, ST77XX_BLACK);
     FrontDisplay.print( "#" );
     FrontDisplay.print( String(id) );
     FrontDisplay.print( " " );
-    FrontDisplay.println( timeString.substring(5,19) );
-      // Line 5: each line is 18 pixels high, 20 characters long (12 pixels wide per character)
-    FrontDisplay.setCursor(1,18*3+6);
+    FrontDisplay.println( textString.substring(5,19) );
+      // Line 4: each line is 18 pixels high, 20 characters long (12 pixels wide per character)
+    FrontDisplay.setCursor(1,18*2+6);
     FrontDisplay.print( " pH    = " );
     FrontDisplay.println( String(pH_value,3) );
-      // Line 6: each line is 18 pixels high, 20 characters long (12 pixels wide per character)
-    FrontDisplay.setCursor(1,18*4+6);    
+      // Line 5: each line is 18 pixels high, 20 characters long (12 pixels wide per character)
+    FrontDisplay.setCursor(1,18*3+6);    
     FrontDisplay.print( " T(lq) = " );
     FrontDisplay.print( String(RTD_value,3) );
     FrontDisplay.println( " C" );
+      // Line 6: each line is 18 pixels high, 20 characters long (12 pixels wide per character)
       // Line 7: each line is 18 pixels high, 20 characters long (12 pixels wide per character)
+    FrontDisplay.setCursor(1,18*5);
+    FrontDisplay.print( " pH_d1: " );
+    FrontDisplay.println( mathstr_sci(pH_max_slope, 2) );
       // Line 8: each line is 18 pixels high, 20 characters long (12 pixels wide per character)
-    FrontDisplay.setCursor(1,18*6+6);
-    FrontDisplay.print( " pH_slope: " );
-    FrontDisplay.println( mathstr_sci(pH_first_dev, 3) );
       // Line 9: each line is 18 pixels high, 20 characters long (12 pixels wide per character)
-    FrontDisplay.setCursor(1,18*7+6);
-    FrontDisplay.print( " pH_curva: " );
-    FrontDisplay.println( mathstr_sci(pH_second_dev, 3) );
+    FrontDisplay.setCursor(1,18*7);
+    FrontDisplay.print( " s_uL : " );
+    FrontDisplay.println( String(titration_uL_Volume, 2) );
       // Line 10: each line is 18 pixels high, 20 characters long (12 pixels wide per character)
+    FrontDisplay.setCursor(1,18*8);
+    FrontDisplay.print( " t_uL : " );
+    FrontDisplay.println( String(total_titration_uL_Volume, 2) );
       // Line 11: each line is 18 pixels high, 20 characters long (12 pixels wide per character)
-      // Line 12: each line is 18 pixels high, 20 characters long (12 pixels wide per character)
-    FrontDisplay.setCursor(36,18*10+6);
+    FrontDisplay.setCursor(36,18*9+6);
     if (errorSDCard) {
       FrontDisplay.setTextColor(ST77XX_RED, ST77XX_BLACK);
       FrontDisplay.print("!SD Card Error!");
@@ -894,26 +930,14 @@ void action23_execute_titration() {
       FrontDisplay.setTextColor(ST77XX_GREEN, ST77XX_BLACK);
       FrontDisplay.print(sd_filename_tit);
     }
+      // Line 12: each line is 18 pixels high, 20 characters long (12 pixels wide per character)
       // Line 13: each line is 18 pixels high, 20 characters long (12 pixels wide per character)
     FrontDisplay.setCursor(1,18*11+6);
     FrontDisplay.setTextColor(ST77XX_WHITE, ST77XX_BLACK);
     FrontDisplay.println("< Hold to RETURN" );
+   
+    id ++;       // increase one ID for the next iteration
 
-    // Pumping logic
-    stepper.setSpeedInStepsPerSecond(800);
-    stepper.setAccelerationInStepsPerSecondPerSecond(800);
-    
-    if(DEBUG) Serial.println(":: Moving Syringe Head DOWN 1 rev (pumping out)");
-    stepper.moveRelativeInSteps(3200); // 3200 steps = 1 full revolution = 1 mm distance
-    delay(2000);
-  
-    if(DEBUG) Serial.println(":: Moving Syringe Head UP 1 rev (pumping in)");
-    stepper.moveRelativeInSteps(-3200);
-    delay(2000);
-    
-    id ++;           // increase one ID for the next iteration
-    
-    delay(DELTA_T*1000);
   } // while button not pressed, continue to run the code block  
 }
 
@@ -956,9 +980,9 @@ void action3_log_sensors() {
     DateTime now = rtc.now();
 
     sprintf(dateTimeBuffer, "%04u-%02u-%02u ", now.year(), now.month(), now.day());
-    timeString = dateTimeBuffer;
+    textString = dateTimeBuffer;
     sprintf(dateTimeBuffer, "%02u:%02u:%02u,\t", now.hour(), now.minute(), now.second());
-    timeString += dateTimeBuffer;
+    textString += dateTimeBuffer;
     
     // Setting up dataStrings
     dataString1 = String(id);
@@ -986,7 +1010,7 @@ void action3_log_sensors() {
     dataString2 += String(P_value/100,3);
     dataString2 += ",\t";
 
-    Serial.print(timeString);fileLog.print(timeString);
+    Serial.print(textString);fileLog.print(textString);
     Serial.print(dataString1);fileLog.print(dataString1);
     Serial.println(dataString2);fileLog.println(dataString2);
     fileLog.flush(); // makes sure that the data is written to file
@@ -998,7 +1022,7 @@ void action3_log_sensors() {
     FrontDisplay.print( "#" );
     FrontDisplay.print( String(id) );
     FrontDisplay.print( " " );
-    FrontDisplay.println( timeString.substring(5,19) );
+    FrontDisplay.println( textString.substring(5,19) );
       // Line 5: each line is 18 pixels high, 20 characters long (12 pixels wide per character)
     FrontDisplay.setCursor(1,18*3+6);
     FrontDisplay.print( " pH    = " );

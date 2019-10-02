@@ -1,5 +1,5 @@
-//#define WIFI_SSID    "BosakLab"
-#define WIFI_SSID    "SensorBotNet"
+#define WIFI_SSID    "BosakLab"
+// #define WIFI_SSID    "SensorBotNet"
 #define WIFI_PASS    "cyan0swin"
 
 #define IO_USERNAME  "gojian"
